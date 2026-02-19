@@ -7,10 +7,16 @@ Example code for the MP1 RRMC implementation
 
 import time
 import traceback
+import os
+import sys
+
+sys.path.append("../..")
+
+from funrobo_kinematics.core.FiveDOFRRMC import FiveDOFRobot
 
 from funrobo_hiwonder.core.hiwonder import HiwonderRobot
 
-from funrobo_kinematics.core.arm_models import FiveDOFRobotTemplate
+#from funrobo_kinematics.core.arm_models import FiveDOFRobotTemplate
 import funrobo_kinematics.core.utils as ut
 
 
@@ -21,12 +27,13 @@ def main():
 
         # Initialize components
         robot = HiwonderRobot()
-        model = FiveDOFRobotTemplate()
+        model = FiveDOFRobot()
         
         control_hz = 20 
         dt = 1 / control_hz
         t0 = time.time()
-
+        curr_joint_values = robot.get_joint_values()
+        new_joint_values = curr_joint_values.copy()
         while True:
             t_start = time.time()
 
@@ -40,10 +47,10 @@ def main():
                 if cmd.arm_home:
                     robot.move_to_home_position()
 
-                curr_joint_values = robot.get_joint_values()
-
                 vel = [cmd.arm_vx, cmd.arm_vy, cmd.arm_vz]
-                new_joint_values = model.calc_velocity_kinematics(curr_joint_values, vel)
+                
+                new_joint_values = model.calc_velocity_kinematics(new_joint_values, vel)
+                print(new_joint_values)
 
                 # set new joint angles
                 robot.set_joint_values(new_joint_values, duration=dt, radians=False)
