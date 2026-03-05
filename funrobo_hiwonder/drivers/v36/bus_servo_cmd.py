@@ -52,13 +52,15 @@ def portInit():  # 配置用到的IO口
 
 portInit()
 
-def portWrite():  # 配置单线串口为输出
-    GPIO.output(tx_pin, 1)  # 拉高TX_CON 即 GPIO27
-    GPIO.output(rx_pin, 0)  # 拉低RX_CON 即 GPIO17
+def portWrite():
+    # BOTH HIGH: TX Enabled, RX Disabled
+    GPIO.output(tx_pin, 1)
+    GPIO.output(rx_pin, 1)
 
-def portRead():  # 配置单线串口为输入
-    GPIO.output(rx_pin, 1)  # 拉高RX_CON 即 GPIO17
-    GPIO.output(tx_pin, 0)  # 拉低TX_CON 即 GPIO27
+def portRead():
+    # BOTH LOW: TX Disabled, RX Enabled
+    GPIO.output(rx_pin, 0)
+    GPIO.output(tx_pin, 0)
 
 def portRest():
     time.sleep(0.1)
@@ -113,55 +115,56 @@ def serial_serro_wirte_cmd(id=None, w_cmd=None, dat1=None, dat2=None):
     serialHandle.write(buf)  # 发送
 
 def serial_servo_read_cmd(id=None, r_cmd=None):
-    '''
-    发送读取命令
-    :param id:
-    :param r_cmd:
-    :param dat:
-    :return:
-    '''
     portWrite()
-    buf = bytearray(b'\x55\x55')  # 帧头
+    serialHandle.reset_input_buffer() # Clear old garbage before we send
+    
+    buf = bytearray(b'\x55\x55')
     buf.append(id)
-    buf.append(3)  # 指令长度
-    buf.append(r_cmd)  # 指令
-    buf.append(checksum(buf))  # 校验和
-    serialHandle.write(buf)  # 发送
-    time.sleep(0.00034)
+    buf.append(3)
+    buf.append(r_cmd)
+    buf.append(checksum(buf))
+    
+    serialHandle.write(buf)
+    serialHandle.flush() # Wait for OS to push data to the wire
+    
+    # Wait for bits to physically leave the wire
+    tx_time = len(buf) * 0.000087
+    time.sleep(tx_time + 0.0001)
+    
+    portRead() # Switch to read mode immediately
+    # CRITICAL: Do not clear the buffer here!
 
 def serial_servo_get_rmsg(cmd):
-    '''
-    # 获取指定读取命令的数据
-    :param cmd: 读取命令
-    :return: 数据
-    '''
-    serialHandle.flushInput()  # 清空接收缓存
-    portRead()  # 将单线串口配置为输入
-    time.sleep(0.005)  # 稍作延时，等待接收完毕
-    count = serialHandle.inWaiting()    # 获取接收缓存中的字节数
-    if count != 0:  # 如果接收到的数据不空
-        recv_data = serialHandle.read(count)  # 读取接收到的数据
-        # for i in recv_data:
-        #     print('%#x' %ord(i))
-        # 是否是读id指令
-        try:
-            if recv_data[0] == 0x55 and recv_data[1] == 0x55 and recv_data[4] == cmd:
-                dat_len = recv_data[3]
-                serialHandle.flushInput()  # 清空接收缓存
+    # We are already in portRead() from the end of serial_servo_read_cmd
+    time.sleep(0.005)  # Wait for servo to finish replying
+    
+    count = serialHandle.inWaiting()
+    if count == 0:
+        return None
+        
+    recv_data = serialHandle.read(count)
+    
+    # Search through the buffer to find the correct reply, skipping the echo
+    for i in range(len(recv_data) - 4):
+        # 1. Match Header (55 55) and Command
+        if recv_data[i] == 0x55 and recv_data[i+1] == 0x55 and recv_data[i+4] == cmd:
+            dat_len = recv_data[i+3]
+            
+            # 2. IGNORE THE ECHO: 
+            # Sent commands usually have length 3 or 4. Read replies are 4, 5, or 7.
+            # If we asked for POS_READ (28), the reply length MUST be 5.
+            if cmd == LOBOT_SERVO_POS_READ and dat_len != 5:
+                continue
+                
+            # 3. Extract the data safely
+            if i + dat_len + 2 <= len(recv_data):
                 if dat_len == 4:
-                    # print ctypes.c_int8(ord(recv_data[5])).value    # 转换成有符号整型
-                    return recv_data[5]
+                    return recv_data[i+5]
                 elif dat_len == 5:
-                    pos = 0xffff & (recv_data[5] | (0xff00 & (recv_data[6] << 8)))
+                    pos = 0xffff & (recv_data[i+5] | (0xff00 & (recv_data[i+6] << 8)))
                     return ctypes.c_int16(pos).value
                 elif dat_len == 7:
-                    pos1 = 0xffff & (recv_data[5] | (0xff00 & (recv_data[6] << 8)))
-                    pos2 = 0xffff & (recv_data[7] | (0xff00 & (recv_data[8] << 8)))
+                    pos1 = 0xffff & (recv_data[i+5] | (0xff00 & (recv_data[i+6] << 8)))
+                    pos2 = 0xffff & (recv_data[i+7] | (0xff00 & (recv_data[i+8] << 8)))
                     return ctypes.c_int16(pos1).value, ctypes.c_int16(pos2).value
-            else:
-                return None
-        except BaseException as e:
-            print(e)
-    else:
-        serialHandle.flushInput()  # 清空接收缓存
-        return None
+    return None

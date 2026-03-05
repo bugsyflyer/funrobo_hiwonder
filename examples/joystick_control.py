@@ -13,10 +13,8 @@ This script shows a simple fixed-rate control loop (20 Hz) that:
 
 import time
 import traceback
-
 from funrobo_hiwonder.core.hiwonder import HiwonderRobot
-
-
+from funrobo_hiwonder.core.hiwonder import detect_version
 
 def joystick_control(robot, dt, joint_values):
     """
@@ -52,17 +50,22 @@ def joystick_control(robot, dt, joint_values):
     joint_values[4] += dt * max_rate * cmd.arm_j5
     joint_values[5] += dt * max_rate * cmd.arm_ee
 
-    new_joint_values = robot.enforce_joint_limits(joint_values)
-    new_joint_values = [round(theta,3) for theta in new_joint_values]
+    # Clamp and round the software targets
+    new_targets = robot.enforce_joint_limits(joint_values)
+    new_targets = [round(theta, 3) for theta in new_targets]
+    
+    # Read ACTUAL hardware state for debugging
+    current_joint_values = robot.get_joint_values()
 
-    print(f'[DEBUG] Commanded joint angles: [j1, j2, j3, j4, j5, ee]: {new_joint_values}')
+    print(f'[DEBUG] Target: {new_targets}')
+    print(f'[DEBUG] Actual: {current_joint_values}')
     print(f'-------------------------------------------------------------------------------------\n')    
     
-    # set new joint angles
-    robot.set_joint_values(new_joint_values, duration=dt, radians=False)
+    # Command the robot to move toward the TARGETS
+    robot.set_joint_values(new_targets, duration=dt / 2, radians=False)
 
     # ----------------------------------------------------------------------
-    # base veocity control
+    # Base velocity control
     # ----------------------------------------------------------------------
 
     """
@@ -90,7 +93,9 @@ def joystick_control(robot, dt, joint_values):
     w3 = (vx - vy + w * (robot.base_length_x + robot.base_length_y)) / robot.wheel_radius
 
     robot.set_wheel_speeds([w0, w1, w2, w3])
-
+    
+    # CRITICAL: Return the new targets so the loop knows where we left off
+    return new_targets
 
 
 def main():
@@ -105,14 +110,14 @@ def main():
     - shuts down safely on exit
     """
     robot = None
-
     try:
         robot = HiwonderRobot()
         
-        control_hz = 20 
+        control_hz = 30
         dt = 1 / control_hz
 
-        joint_values = robot.get_joint_values()
+        # Initialize targets to wherever the robot is currently sitting
+        joint_targets = robot.get_joint_values()
 
         while True:
             t_start = time.time()
@@ -122,9 +127,9 @@ def main():
                 break
 
             if robot.gamepad.cmdlist:
-                joystick_control(robot, dt, joint_values)
-
-
+                # Update our persistent targets by calling the control function
+                joint_targets = joystick_control(robot, dt, joint_targets.copy())
+                
             elapsed = time.time() - t_start
             remaining_time = dt - elapsed
             if remaining_time > 0:
@@ -140,10 +145,6 @@ def main():
     finally:
         if robot is not None:
             robot.shutdown_robot()
-
-
-
-
 
 if __name__ == "__main__":
     main()
