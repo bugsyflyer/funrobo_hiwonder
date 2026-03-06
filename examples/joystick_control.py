@@ -14,7 +14,6 @@ This script shows a simple fixed-rate control loop (20 Hz) that:
 import time
 import traceback
 from funrobo_hiwonder.core.hiwonder import HiwonderRobot
-from funrobo_hiwonder.core.hiwonder import detect_version
 
 def joystick_control(robot, dt, joint_values):
     """
@@ -94,7 +93,6 @@ def joystick_control(robot, dt, joint_values):
 
     robot.set_wheel_speeds([w0, w1, w2, w3])
     
-    # CRITICAL: Return the new targets so the loop knows where we left off
     return new_targets
 
 
@@ -116,7 +114,7 @@ def main():
         control_hz = 30
         dt = 1 / control_hz
 
-        # Initialize targets to wherever the robot is currently sitting
+        # Get initial joint values
         joint_targets = robot.get_joint_values()
 
         while True:
@@ -127,7 +125,6 @@ def main():
                 break
 
             if robot.gamepad.cmdlist:
-                # Update our persistent targets by calling the control function
                 joint_targets = joystick_control(robot, dt, joint_targets.copy())
                 
             elapsed = time.time() - t_start

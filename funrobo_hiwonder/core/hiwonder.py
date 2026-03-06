@@ -536,6 +536,15 @@ class RobotV36(BaseRobot):
                     self._last_pulses[joint_id] = pulse
                         
     def read_joint_value(self, joint_id: int):
+        """
+        Read a single servo pulse value from v36 hardware.
+
+        Args:
+            joint_id (int): 1-based hardware servo ID.
+
+        Returns:
+            int|None: pulse value if successful, otherwise None.
+        """
         max_count = 20
         for _ in range(max_count):
             with self.board_lock:

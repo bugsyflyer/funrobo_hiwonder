@@ -1,5 +1,5 @@
 
-name: funrobo_ca
+name: funrobo_hw
 channels:
   - conda-forge
 dependencies:
