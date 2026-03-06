@@ -484,9 +484,14 @@ class RobotV36(BaseRobot):
     """
     Implementation for the v36 controller stack.
     """
-
     def __init__(self) -> None:
+        # 1. Define hardware-specific attributes FIRST
+        # These must exist before the parent starts the reading thread
+        self.board_lock = threading.Lock()
         self.motor_board = BoardController()
+        
+        # 2. Call the parent constructor
+        # This sets up joint_limits, home_position, and STARTS the threads
         super().__init__()
 
 
@@ -498,7 +503,6 @@ class RobotV36(BaseRobot):
             speedlist (list): Length-4 list of wheel speeds (hardware units).
         """
         self.motor_board.set_motor_speed(speedlist)
-
 
     def set_joint_values(self, joint_values: list, duration=1, radians=False) -> None:
         """
@@ -516,34 +520,31 @@ class RobotV36(BaseRobot):
             joint_values = [np.rad2deg(theta) for theta in joint_values]
 
         joint_values = self.enforce_joint_limits(joint_values)
-        self.joint_values = joint_values.copy() # updates joint_values with commanded thetalist
         joint_values_hw = self.remap_joints(joint_values)
 
-        for joint_id, theta in enumerate(joint_values_hw, start=1):
-            pulse = self.angle_to_pulse(theta)
-            setServoPulse(joint_id, pulse, int(duration * 1000))
-    
-    
+        # Initialize cache
+        if not hasattr(self, '_last_pulses'):
+            self._last_pulses = {}
+
+        with self.board_lock:
+            for joint_id, theta in enumerate(joint_values_hw, start=1):
+                pulse = self.angle_to_pulse(theta)
+                
+                # Cache check: Only write to hardware if the pulse has changed
+                if self._last_pulses.get(joint_id) != pulse:
+                    setServoPulse(joint_id, pulse, int(duration * 1000))
+                    self._last_pulses[joint_id] = pulse
+                        
     def read_joint_value(self, joint_id: int):
-        """
-        Read a single servo pulse value from v36 hardware.
-
-        Args:
-            joint_id (int): 1-based hardware servo ID.
-
-        Returns:
-            int|None: pulse value if successful, otherwise None.
-        """
-        #TODO Fix read error issue
-        # max_count = 20
-        # for _ in range(max_count):
-        #     res = getServoPulse(joint_id)
-        #     if res is not None:
-        #         return res
-        #     time.sleep(0.01)
+        max_count = 20
+        for _ in range(max_count):
+            with self.board_lock:
+                res = getServoPulse(joint_id)
+            if res is not None:
+                return res
+            time.sleep(0.01)
         return None
             
-    
     def read_joint_values(self) -> None:
         """
         Background loop: read servo pulses from v36 hardware, convert to degrees,
@@ -557,9 +558,9 @@ class RobotV36(BaseRobot):
                 raw = self.remap_joints(raw)
 
                 with self.joint_lock:
-                    prev = self.joint_values.copy()
+                    prev = self.joint_values
 
-                new_angles = prev
+                new_angles = prev.copy()
                 for i in range(len(raw)):
                     if raw[i] is None:
                         new_angles[i] = prev[i]
@@ -574,40 +575,27 @@ class RobotV36(BaseRobot):
                 dt = time.time() - t0
                 if dt > (10 / self.read_hz):
                     print("[WARN] reader slow:", dt, "raw:", raw)
-                    raise RuntimeError("Read thread is damaged... restart!")
 
         except Exception as e:
             self.read_error = e
             self.shutdown_event.set()
-
-    
-    def get_joint_values(self) -> list:
-        """
-        Thread-safe getter for joint angles (v36).
-
-        Returns:
-            list: Joint angles (degrees) in software joint order.
-        """
-        with self.joint_lock:
-            return self.joint_values.copy()
-
 
     def open_gripper(self) -> None:
         """
         Open the gripper on v36 hardware.
         """
         open_pulse = self.angle_to_pulse(self.open_gripper_angle)
-        setServoPulse(1, open_pulse, int(self.gripper_duration))
-
+        with self.board_lock:
+            setServoPulse(1, open_pulse, int(self.gripper_duration))
 
     def close_gripper(self) -> None:
         """
         Close the gripper on v36 hardware.
         """
         close_pulse = self.angle_to_pulse(self.close_gripper_angle)
-        setServoPulse(1, close_pulse, int(self.gripper_duration))
+        with self.board_lock:
+            setServoPulse(1, close_pulse, int(self.gripper_duration))
 
-    
     def shutdown_robot(self) -> None:
         """
         Safely shut down v36 hardware.
@@ -624,13 +612,9 @@ class RobotV36(BaseRobot):
         time.sleep(1.5)
         print("[INFO] Shutdown complete. Safe to power off.")
 
-
     def stop_motors(self):
-        """ Stops all motors safely """
         self.motor_board.set_motor_speed([0]*4)
         print("[INFO] Motors stopped.")
-
-
-
-# Alias that selects the correct class for the current hardware.
+        
+# # Alias that selects the correct class for the current hardware.
 HiwonderRobot = RobotV5 if detect_version() == "v5" else RobotV36

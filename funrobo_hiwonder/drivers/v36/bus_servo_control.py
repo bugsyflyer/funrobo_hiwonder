@@ -164,16 +164,8 @@ def getBusServoTempLimit(id):
             return msg
 
 def getBusServoPulse(id):
-    '''
-    读取舵机当前位置
-    :param id:
-    :return:
-    '''
-    while True:
-        serial_servo_read_cmd(id, LOBOT_SERVO_POS_READ)
-        msg = serial_servo_get_rmsg(LOBOT_SERVO_POS_READ)
-        if msg is not None:
-            return msg
+    serial_servo_read_cmd(id, LOBOT_SERVO_POS_READ)
+    return serial_servo_get_rmsg(LOBOT_SERVO_POS_READ)
 
 def getBusServoTemp(id):
     '''
