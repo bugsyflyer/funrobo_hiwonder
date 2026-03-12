@@ -12,12 +12,12 @@ import sys
 
 sys.path.append("../..")
 
-from funrobo_kinematics.core.FiveDOFRRMC import FiveDOFRobot
+from funrobo_kinematics.scripts.FiveDOF_rrmc import FiveDOFRobot
 
 from funrobo_hiwonder.core.hiwonder import HiwonderRobot
 
 #from funrobo_kinematics.core.arm_models import FiveDOFRobotTemplate
-import funrobo_kinematics.core.utils as ut
+import funrobo_kinematics.funrobo_kinematics.core.utils as ut
 
 
 
